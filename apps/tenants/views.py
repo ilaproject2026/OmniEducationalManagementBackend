@@ -27,11 +27,15 @@ class TenantViewSet(viewsets.ModelViewSet):
             return [IsSuperAdmin()]
         elif self.action in ["update", "partial_update"]:
             return [IsInstitutionAdmin()]
+        elif self.action == "list":
+            return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
+        if not self.request.user or not self.request.user.is_authenticated:
+            return Tenant.objects.filter(is_deleted=False, status=Tenant.STATUS_ACTIVE)
         if self.request.user.is_superuser:
-            return Tenant.objects.all()
+            return Tenant.objects.filter(is_deleted=False)
         # Return only tenants where the user has an active membership
         return Tenant.objects.filter(
             memberships__user=self.request.user,
@@ -57,10 +61,12 @@ class TenantViewSet(viewsets.ModelViewSet):
         """
         Returns the active tenant context for the current request.
         """
-        if not request.tenant:
+        from apps.accounts.permissions import get_or_resolve_tenant
+        tenant = getattr(request, "tenant", None) or get_or_resolve_tenant(request)
+        if not tenant:
             return Response(
                 {"success": False, "error": {"code": "NO_ACTIVE_TENANT", "message": "No active tenant selected."}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        serializer = TenantDetailSerializer(request.tenant)
+        serializer = TenantDetailSerializer(tenant)
         return Response({"success": True, "data": serializer.data})
